@@ -89,7 +89,7 @@ def main():
 
     #Set up the communication with the openAI API.
     messages = [{"role": "user", "content": recognizedText}]
-    response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages, stream=True)
+    response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages, stream=True, max_tokens=1024)
 
     #Helper variables.
     totalText = ""
@@ -115,7 +115,8 @@ def main():
                 sentences = nltk.sent_tokenize(textToBeSpoken)
                 if len(sentences) > 1:
                     logging.debug("Detected new sentence!")
-                    latencyData["response_time"] = datetime.datetime.now()
+                    if "response_time" not in latencyData:
+                        latencyData["response_time"] = datetime.datetime.now()
                     for index, sentence in enumerate(sentences):
                         if index < len(sentences)-1:
                             synthesizeAndPlayAudio(sentence)
