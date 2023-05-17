@@ -33,18 +33,9 @@ eventQueue = queue.Queue()
 readyForPlaybackEvent = threading.Event()
 readyForPlaybackEvent.set()
 
-#Microphone setup for the speech recognition.
+#pyAudio backend, used to get info about the audio devices
 pyABackend = pyaudio.PyAudio()
-microphoneInfo = pyABackend.get_default_input_device_info()
-srMic = sr.Microphone(device_index=microphoneInfo["index"], sample_rate=int(microphoneInfo["defaultSampleRate"]))
-recognizer = sr.Recognizer()
-
-
-#These values are specific to MY microphone - you may have to change them for yours for it to work well.
-recognizer.pause_threshold = 0.5
-recognizer.energy_threshold = 250
-recognizer.dynamic_energy_threshold = False
-
+outputDeviceIndex = -1
 
 #Load the chosen model using faster-whisper.
 model = faster_whisper.WhisperModel(whisperModel, device="cuda", compute_type="float16")
@@ -63,6 +54,28 @@ sentenceEndCharacters = [".","?","!"]
 latencyData = dict()
 
 def main():
+    #Microphone setup for speech recognition
+    defaultInputInfo = pyABackend.get_default_input_device_info()
+    print(f"Default input device: {defaultInputInfo['name']} - {defaultInputInfo['index']}")
+    microphoneInfo = get_portaudio_device_info_from_name(choose_from_list_of_strings("Please choose your input device.", get_list_of_portaudio_devices("input")))
+    srMic = sr.Microphone(device_index=microphoneInfo["index"], sample_rate=int(microphoneInfo["defaultSampleRate"]))
+    recognizer = sr.Recognizer()
+
+    #Audio output setup
+    defaultOutputInfo = pyABackend.get_default_output_device_info()
+    print(f"Default output device: {defaultOutputInfo['name']} - {defaultOutputInfo['index']}")
+    outputInfo = get_portaudio_device_info_from_name(choose_from_list_of_strings("Please choose your output device.", get_list_of_portaudio_devices("output")))
+    global outputDeviceIndex
+    outputDeviceIndex = outputInfo["index"]
+
+    # These values are specific to MY microphone - you may have to change them for yours for it to work well.
+    recognizer.pause_threshold = 0.5
+    recognizer.energy_threshold = 250
+    recognizer.dynamic_energy_threshold = False
+
+
+
+
     # Start the thread that handles the TTS parallelization.
     # For more information, see the comments in that function.
     threading.Thread(target=waitForPlaybackReady).start()
@@ -189,8 +202,54 @@ def synthesizeAndPlayAudio(prompt) -> None:
         logging.debug("Finished playing audio:" + prompt)
         readyForPlaybackEvent.set()
 
-    voice.generate_and_stream_audio(prompt=prompt,streamInBackground=True,onPlaybackStart=startcallbackfunc,onPlaybackEnd=endcallbackfunc)
+    voice.generate_and_stream_audio(prompt=prompt,streamInBackground=True,onPlaybackStart=startcallbackfunc,onPlaybackEnd=endcallbackfunc, portaudioDeviceID=outputDeviceIndex)
 
+
+
+
+#UI stuff, not relevant to the main program.
+
+def get_list_of_portaudio_devices(deviceType:str) -> list[str]:
+    """
+    Returns a list containing all the names of portaudio devices of the specified type.
+    """
+    if deviceType != "output" and deviceType != "input":
+        raise ValueError("Invalid audio device type.")
+    hostAPIinfo = pyABackend.get_default_host_api_info()
+
+    deviceNames = list()
+    for i in range(hostAPIinfo["deviceCount"]):
+        device = pyABackend.get_device_info_by_host_api_device_index(hostAPIinfo["index"], i)
+        if device["max" + deviceType[0].upper() + deviceType[1:] + "Channels"] > 0:
+            deviceNames.append(device["name"] + " - " + str(device["index"]))
+
+    return deviceNames
+
+def get_portaudio_device_info_from_name(deviceName:str):
+    chosenDeviceID = int(deviceName[deviceName.rfind(" - ") + 3:])
+    chosenDeviceInfo = pyABackend.get_device_info_by_index(chosenDeviceID)
+    return chosenDeviceInfo
+
+def choose_int(prompt, minValue, maxValue) -> int:
+    print(prompt)
+    chosenVoiceIndex = -1
+    while not (minValue <= chosenVoiceIndex <= maxValue):
+        try:
+            chosenVoiceIndex = int(input("Input a number between " + str(minValue) +" and " + str(maxValue)+"\n"))
+        except ValueError:
+            print("Not a valid number.")
+    return chosenVoiceIndex
+def choose_from_list_of_strings(prompt, options:list[str]) -> str:
+    print(prompt)
+    if len(options) == 1:
+        print("Choosing the only available option: " + options[0])
+        return options[0]
+
+    for index, option in enumerate(options):
+        print(str(index+1) + ") " + option)
+
+    chosenOption = choose_int("", 1, len(options)) - 1
+    return options[chosenOption]
 
 
 
