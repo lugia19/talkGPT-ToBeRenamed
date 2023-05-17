@@ -36,7 +36,7 @@ readyForPlaybackEvent.set()
 #Microphone setup for the speech recognition.
 pyABackend = pyaudio.PyAudio()
 microphoneInfo = pyABackend.get_default_input_device_info()
-srMic = sr.Microphone(device_index=1, sample_rate=int(microphoneInfo["defaultSampleRate"]))
+srMic = sr.Microphone(device_index=microphoneInfo["index"], sample_rate=int(microphoneInfo["defaultSampleRate"]))
 recognizer = sr.Recognizer()
 
 
