@@ -1,6 +1,7 @@
 import datetime
 import io
 import logging
+import os
 import queue
 import threading
 from elevenlabslib import *
@@ -16,7 +17,7 @@ openAIAPIKey = None
 elevenAPIKey = None
 elevenLabsVoiceName = "Rachel"
 latencyOptimizationLevel=3      #4 is slightly faster but can mispronounce dates and numbers. Not worth it imo.
-whisperModel = "medium.en"
+whisperModel = "base.en"
 
 
 
@@ -46,7 +47,7 @@ try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
     nltk.download("punkt")
-
+logging.basicConfig(level=logging.DEBUG)
 #Eligible characters for the end of a sentence (used for openAI output streaming):
 sentenceEndCharacters = [".","?","!"]
 
@@ -91,7 +92,8 @@ def main():
 
     #Transcribe the audio using faster-whisper
     recognizedText = ""
-    segments, _ = model.transcribe(io.BytesIO(audio.get_wav_data()), language="en", beam_size=5)
+    segments, info = model.transcribe(io.BytesIO(audio.get_wav_data()), language="en", beam_size=5)
+    print(info)
     for segment in segments:
         recognizedText += " " + segment.text
 
@@ -192,6 +194,9 @@ def synthesizeAndPlayAudio(prompt) -> None:
     def startcallbackfunc():
         #This function is run once the stream is ready to begin playback.
         #It waits for the event to be set by the waitForPlaybackReady thread.
+
+        #NOTE: In pycharm specifically, for some reason breakpoints in this function do not work unless I use the breakpoint() function, so be warned.
+        #breakpoint()
         newEvent.wait()
         logging.debug("Playing audio: " + prompt)
         if "speak_time" not in latencyData:
@@ -201,8 +206,8 @@ def synthesizeAndPlayAudio(prompt) -> None:
         #It sets readyForPlaybackEvent, which allows the waitForPlaybackReady thread to pick a new event from the queue.
         logging.debug("Finished playing audio:" + prompt)
         readyForPlaybackEvent.set()
-
-    voice.generate_and_stream_audio(prompt=prompt,streamInBackground=True,onPlaybackStart=startcallbackfunc,onPlaybackEnd=endcallbackfunc, portaudioDeviceID=outputDeviceIndex)
+    playbackOptions = PlaybackOptions(runInBackground=True, onPlaybackStart=startcallbackfunc, onPlaybackEnd=endcallbackfunc, portaudioDeviceID=outputDeviceIndex)
+    voice.generate_stream_audio_v2(prompt=prompt, playbackOptions=playbackOptions)
 
 
 
@@ -215,13 +220,14 @@ def get_list_of_portaudio_devices(deviceType:str) -> list[str]:
     """
     if deviceType != "output" and deviceType != "input":
         raise ValueError("Invalid audio device type.")
-    hostAPIinfo = pyABackend.get_default_host_api_info()
 
     deviceNames = list()
-    for i in range(hostAPIinfo["deviceCount"]):
-        device = pyABackend.get_device_info_by_host_api_device_index(hostAPIinfo["index"], i)
-        if device["max" + deviceType[0].upper() + deviceType[1:] + "Channels"] > 0:
-            deviceNames.append(device["name"] + " - " + str(device["index"]))
+    for hostAPI in range(pyABackend.get_host_api_count()):
+        hostAPIinfo = pyABackend.get_host_api_info_by_index(hostAPI)
+        for i in range(hostAPIinfo["deviceCount"]):
+            device = pyABackend.get_device_info_by_host_api_device_index(hostAPIinfo["index"], i)
+            if device["max" + deviceType[0].upper() + deviceType[1:] + "Channels"] > 0:
+                deviceNames.append(f"{device['name']} (API: {hostAPIinfo['name']}) - {device['index']}")
 
     return deviceNames
 
